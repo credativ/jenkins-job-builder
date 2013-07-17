@@ -36,6 +36,34 @@ import xml.etree.ElementTree as XML
 import jenkins_jobs.modules.base
 
 
+def promoted_build(parser, xml_parent, data):
+    """yaml: promoted-build
+    Marks a build for promotion. A promotion process with an identical
+    name must be created via the web interface in the job in order for the job
+    promotion to persist. Promotion processes themselves cannot be configured
+    by jenkins-jobs due to the separate storage of plugin configuration files.
+    Requires the Jenkins `Promoted Builds Plugin.
+    <https://wiki.jenkins-ci.org/display/JENKINS/Promoted+Builds+Plugin>`_
+
+    :arg list names: the promoted build names
+
+    Example::
+
+      properties:
+        - promoted-build:
+            names:
+              - "Release to QA"
+              - "Jane Must Approve"
+    """
+    promoted = XML.SubElement(xml_parent, 'hudson.plugins.promoted__builds.'
+                                          'JobPropertyImpl')
+    names = data.get('names', [])
+    if names:
+        active_processes = XML.SubElement(promoted, 'activeProcessNames')
+        for n in names:
+            XML.SubElement(active_processes, 'string').text = str(n)
+
+
 def github(parser, xml_parent, data):
     """yaml: github
     Sets the GitHub URL for the project.
@@ -302,8 +330,34 @@ def extended_choice(parser, xml_parent, data):
         'default-property-key', '')
 
 
+def priority_sorter(parser, xml_parent, data):
+    """yaml: priority-sorter
+    Allows simple ordering of builds, using a configurable job priority.
+
+    Requires the Jenkins `Priority Sorter Plugin
+    <https://wiki.jenkins-ci.org/display/JENKINS/Priority+Sorter+Plugin>`_.
+
+    :arg int priority: Priority of the job.  Higher value means higher
+        priority, with 100 as the standard priority. (required)
+
+    Example::
+
+        properties:
+          - priority-sorter:
+              priority: 150
+    """
+    priority_sorter_tag = XML.SubElement(xml_parent,
+                                         'hudson.queueSorter.'
+                                         'PrioritySorterJobProperty')
+    XML.SubElement(priority_sorter_tag, 'priority').text = str(
+        data['priority'])
+
+
 class Properties(jenkins_jobs.modules.base.Base):
     sequence = 20
+
+    component_type = 'property'
+    component_list_type = 'properties'
 
     def gen_xml(self, parser, xml_parent, data):
         properties = xml_parent.find('properties')
@@ -311,5 +365,4 @@ class Properties(jenkins_jobs.modules.base.Base):
             properties = XML.SubElement(xml_parent, 'properties')
 
         for prop in data.get('properties', []):
-            self._dispatch('property', 'properties',
-                           parser, properties, prop)
+            self.registry.dispatch('property', parser, properties, prop)

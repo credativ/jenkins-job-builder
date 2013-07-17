@@ -17,7 +17,12 @@
 The matrix project module handles creating Jenkins matrix
 projects. To create a matrix project specify ``matrix`` in the
 ``project-type`` attribute to the :ref:`Job` definition.
-Currently it only supports label expression axes.
+Currently it only supports three axes which share the same
+internal YAML structure:
+
+* label expressions (``label-expression``)
+* user-defined values (``user-defined``)
+* slave name or label (``slave``)
 
 :Job Parameters:
     * **execution-strategy** (optional):
@@ -29,7 +34,8 @@ Currently it only supports label expression axes.
             stable (default) or unstable
     * **axes** (`list`):
         * **axis**:
-            * **type** (`str`) -- axis type, must be 'label-expression'
+            * **type** (`str`) -- axis type, must be either
+              'label-expression', 'user-defined' or 'slave'.
             * **name** (`str`) -- name of the axis
             * **values** (`list`) -- values of the axis
 
@@ -58,8 +64,30 @@ Example::
          values:
           - amd64
           - i386
+      - axis:
+         type: slave
+         name: nodes
+         values:
+          - node1
+          - node2
     builders:
       - shell: make && make check
+
+Example using user-defined axis::
+
+ - job:
+    name: matrix-user-defined
+    project-type: matrix
+    axes:
+      - axis:
+        type: user-defined
+        name: database
+        values:
+         - mysql
+         - postgresql
+         - sqlite
+    builders:
+     - shell: make "$database"
 """
 
 
@@ -69,6 +97,14 @@ import jenkins_jobs.modules.base
 
 class Matrix(jenkins_jobs.modules.base.Base):
     sequence = 0
+    # List the supported Axis names in our configuration
+    # and map them to the Jenkins XML element name.
+    supported_axis = {
+        'label-expression': 'hudson.matrix.LabelExpAxis',
+        'user-defined': 'hudson.matrix.TextAxis',
+        'slave': 'hudson.matrix.LabelAxis',
+        'text': 'hudson.matrix.TextAxis',
+    }
 
     def root_xml(self, data):
         root = XML.Element('matrix-project')
@@ -100,14 +136,11 @@ class Matrix(jenkins_jobs.modules.base.Base):
         ax_root = XML.SubElement(root, 'axes')
         for axis_ in data.get('axes', []):
             axis = axis_['axis']
-            if axis['type'] == 'label-expression':
-                lbl = 'hudson.matrix.LabelExpAxis'
-            elif axis['type'] == 'text':
-                lbl = 'hudson.matrix.TextAxis'
-            else:
-                raise ValueError('Only label-expression and text axis type supported')
-
-            lbl_root = XML.SubElement(ax_root, lbl)
+            if axis['type'] not in self.supported_axis:
+                raise ValueError('Only %s axes types are supported'
+                                 % self.supported_axis.keys())
+            axis_name = self.supported_axis.get(axis['type'])
+            lbl_root = XML.SubElement(ax_root, axis_name)
             name, values = axis['name'], axis['values']
             XML.SubElement(lbl_root, 'name').text = str(name)
             v_root = XML.SubElement(lbl_root, 'values')

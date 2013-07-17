@@ -70,6 +70,26 @@ def string_param(parser, xml_parent, data):
                'hudson.model.StringParameterDefinition')
 
 
+def password_param(parser, xml_parent, data):
+    """yaml: password
+    A password parameter.
+
+    :arg str name: the name of the parameter
+    :arg str default: the default value of the parameter (optional)
+    :arg str description: a description of the parameter (optional)
+
+    Example::
+
+      parameters:
+        - password:
+            name: FOO
+            default: 1HSC0Ts6E161FysGf+e1xasgsHkgleLh09JUTYnipPvw=
+            description: "A parameter named FOO."
+    """
+    base_param(parser, xml_parent, data, True,
+               'hudson.model.PasswordParameterDefinition')
+
+
 def bool_param(parser, xml_parent, data):
     """yaml: bool
     A boolean parameter.
@@ -244,6 +264,9 @@ def svn_tags_param(parser, xml_parent, data):
 class Parameters(jenkins_jobs.modules.base.Base):
     sequence = 21
 
+    component_type = 'parameter'
+    component_list_type = 'parameters'
+
     def gen_xml(self, parser, xml_parent, data):
         properties = xml_parent.find('properties')
         if properties is None:
@@ -255,5 +278,5 @@ class Parameters(jenkins_jobs.modules.base.Base):
                                    'hudson.model.ParametersDefinitionProperty')
             pdefs = XML.SubElement(pdefp, 'parameterDefinitions')
             for param in parameters:
-                self._dispatch('parameter', 'parameters',
-                               parser, pdefs, param)
+                self.registry.dispatch('parameter',
+                                       parser, pdefs, param)

@@ -74,16 +74,23 @@ class General(jenkins_jobs.modules.base.Base):
         else:
             XML.SubElement(xml,
                            'blockBuildWhenUpstreamBuilding').text = 'false'
+        if 'auth-token' in data:
+            XML.SubElement(xml, 'authToken').text = data['auth-token']
         if data.get('concurrent'):
             XML.SubElement(xml, 'concurrentBuild').text = 'true'
         else:
             XML.SubElement(xml, 'concurrentBuild').text = 'false'
+        if 'workspace' in data:
+            XML.SubElement(xml, 'customWorkspace').text = \
+                str(data['workspace'])
         if('quiet-period' in data):
             XML.SubElement(xml, 'quietPeriod').text = str(data['quiet-period'])
         node = data.get('node', None)
         if node:
             XML.SubElement(xml, 'assignedNode').text = node
             XML.SubElement(xml, 'canRoam').text = 'false'
+        else:
+            XML.SubElement(xml, 'canRoam').text = 'true'
         if 'logrotate' in data:
             lr_xml = XML.SubElement(xml, 'logRotator')
             logrotate = data['logrotate']

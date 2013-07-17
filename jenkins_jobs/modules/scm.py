@@ -54,6 +54,15 @@ def git(self, xml_parent, data):
     :arg str refspec: refspec to fetch
     :arg str name: name to fetch
     :arg list(str) branches: list of branch specifiers to build
+    :arg list(str) excluded-users: list of users to ignore revisions from
+      when polling for changes. (if polling is enabled)
+    :arg list(str) included-regions: list of file/folders to include
+    :arg list(str) excluded-regions: list of file/folders to exclude
+    :arg dict merge:
+        :merge:
+            * **remote** (`string`) - name of repo that contains branch to
+                merge to (default 'origin')
+            * **branch** (`string`) - name of the branch to merge to
     :arg str basedir: location relative to the workspace root to clone to
              (default: workspace)
     :arg bool skip-tag: Skip tagging
@@ -110,8 +119,6 @@ def git(self, xml_parent, data):
         (None, 'submoduleCfg', '', {'class': 'list'}),
         ('basedir', 'relativeTargetDir', ''),
         (None, 'reference', ''),
-        (None, 'excludedRegions', ''),
-        (None, 'excludedUsers', ''),
         (None, 'gitConfigName', ''),
         (None, 'gitConfigEmail', ''),
         ('skip-tag', 'skipTag', False),
@@ -135,6 +142,21 @@ def git(self, xml_parent, data):
     for branch in branches:
         bspec = XML.SubElement(xml_branches, 'hudson.plugins.git.BranchSpec')
         XML.SubElement(bspec, 'name').text = branch
+    excluded_users = '\n'.join(data.get('excluded-users', []))
+    XML.SubElement(scm, 'excludedUsers').text = excluded_users
+    if 'included-regions' in data:
+        include_string = '\n'.join(data['included-regions'])
+        XML.SubElement(scm, 'includedRegions').text = include_string
+    if 'excluded-regions' in data:
+        exclude_string = '\n'.join(data['excluded-regions'])
+        XML.SubElement(scm, 'excludedRegions').text = exclude_string
+    if 'merge' in data:
+        merge = data['merge']
+        name = merge.get('remote', 'origin')
+        branch = merge['branch']
+        urc = XML.SubElement(scm, 'userMergeOptions')
+        XML.SubElement(urc, 'mergeRemote').text = name
+        XML.SubElement(urc, 'mergeTarget').text = branch
     for elem in mapping:
         (optname, xmlname, val) = elem[:3]
         attrs = {}
@@ -233,8 +255,135 @@ def svn(self, xml_parent, data):
                    'hudson.scm.subversion.' + updaterclass})
 
 
+def tfs(self, xml_parent, data):
+    """yaml: tfs
+    Specifies the Team Foundation Server repository for this job.
+    Requires the Jenkins `Team Foundation Server Plugin.
+    <https://wiki.jenkins-ci.org/display/JENKINS/
+    Team+Foundation+Server+Plugin>`_
+
+    **NOTE**: TFS Password must be entered manually on the project if a
+    user name is specified. The password will be overwritten with an empty
+    value every time the job is rebuilt with Jenkins Job Builder.
+
+    :arg str server-url: The name or URL of the team foundation server.
+        If the server has been registered on the machine then it is only
+        necessary to enter the name.
+    :arg str project-path: The name of the project as it is registered on the
+        server.
+    :arg str login: The user name that is registered on the server. The user
+        name must contain the name and the domain name. Entered as
+        domain\\\user or user\@domain (optional).
+        **NOTE**: You must enter in at least two slashes for the
+        domain\\\user format in JJB YAML. It will be rendered normally.
+    :arg str use-update: If true, Hudson will not delete the workspace at end
+        of each build. This causes the artifacts from the previous build to
+        remain when a new build starts. (default true)
+    :arg str local-path: The folder where all files will be retrieved into.
+        The folder name is a relative path, under the workspace of the current
+        job. (default .)
+    :arg str workspace: The name of the workspace under which the source
+        should be retrieved. This workspace is created at the start of a
+        download, and deleted at the end. You can normally omit the property
+        unless you want to name a workspace to avoid conflicts on the server
+        (i.e. when you have multiple projects on one server talking to a
+        Team Foundation Server). (default Hudson-${JOB_NAME}-${NODE_NAME})
+
+        The TFS plugin supports the following macros that are replaced in the
+        workspace name:
+
+        * ${JOB_NAME} - The name of the job.
+        * ${USER_NAME} - The user name that the Hudson server or slave is
+            running as.
+        * ${NODE_NAME} - The name of the node/slave that the plugin currently
+            is executed on. Note that this is not the hostname, this value is
+            the Hudson configured name of the slave/node.
+        * ${ENV} - The environment variable that is set on the master or slave.
+
+
+    :arg dict web-access: Adds links in "changes" views within Jenkins to an
+        external system for browsing the details of those changes. The "Auto"
+        selection attempts to infer the repository browser from other jobs,
+        if supported by the SCM and a job with matching SCM details can be
+        found. (optional, default Auto).
+
+        :web-access value:
+            * **web-url** -- Enter the URL to the TSWA server. The plugin will
+              strip the last path (if any) of the URL when building URLs for
+              change set pages and other pages. (optional, default
+              uses server-url)
+
+
+    Examples::
+
+      scm:
+        - tfs:
+           server-url: "tfs.company.com"
+           project-path: "$/myproject"
+           login: "mydomain\\\jane"
+           use-update: false
+           local-path: "../foo/"
+           workspace: "Hudson-${JOB_NAME}"
+           web-access:
+               - web-url: "http://TFSMachine:8080"
+
+      scm:
+        - tfs:
+           server-url: "tfs.company.com"
+           project-path: "$/myproject"
+           login: "jane@mydomain"
+           use-update: false
+           local-path: "../foo/"
+           workspace: "Hudson-${JOB_NAME}"
+           web-access:
+
+      scm:
+        - tfs:
+           server-url: "tfs.company.com"
+           project-path: "$/myproject"
+           login: "mydomain\\\jane"
+           use-update: false
+           local-path: "../foo/"
+           workspace: "Hudson-${JOB_NAME}"
+
+    """
+
+    tfs = XML.SubElement(xml_parent, 'scm', {'class': 'hudson.plugins.tfs.'
+                                             'TeamFoundationServerScm'})
+    XML.SubElement(tfs, 'serverUrl').text = str(
+        data.get('server-url', ''))
+    XML.SubElement(tfs, 'projectPath').text = str(
+        data.get('project-path', ''))
+    XML.SubElement(tfs, 'localPath').text = str(
+        data.get('local-path', '.'))
+    XML.SubElement(tfs, 'workspaceName').text = str(
+        data.get('workspace', 'Hudson-${JOB_NAME}-${NODE_NAME}'))
+    # TODO: In the future, with would be nice to have a place that can pull
+    # passwords into JJB without having to commit them in plaintext. This
+    # could also integrate nicely with global configuration options.
+    XML.SubElement(tfs, 'userPassword')
+    XML.SubElement(tfs, 'userName').text = str(
+        data.get('login', ''))
+    XML.SubElement(tfs, 'useUpdate').text = str(
+        data.get('use-update', 'true'))
+    store = data.get('web-access', None)
+    if 'web-access' in data and isinstance(store, list):
+        web = XML.SubElement(tfs, 'repositoryBrowser', {'class': 'hudson.'
+                                  'plugins.tfs.browsers.'
+                                  'TeamSystemWebAccessBrowser'})
+        XML.SubElement(web, 'url').text = str(store[0].get('web-url', None))
+    elif 'web-access' in data and store is None:
+        XML.SubElement(tfs, 'repositoryBrowser', {'class': 'hudson.'
+                                                  'plugins.tfs.browsers.'
+                                                  'TeamSystemWebAccess'
+                                                  'Browser'})
+
+
 class SCM(jenkins_jobs.modules.base.Base):
     sequence = 30
+
+    component_type = 'scm'
+    component_list_type = 'scm'
 
     def gen_xml(self, parser, xml_parent, data):
         scms = data.get('scm', [])
@@ -245,7 +394,6 @@ class SCM(jenkins_jobs.modules.base.Base):
                 xml_parent = XML.SubElement(xml_parent, 'scm', xml_attribs)
                 xml_parent = XML.SubElement(xml_parent, 'scms')
             for scm in data.get('scm', []):
-                self._dispatch('scm', 'scm',
-                               parser, xml_parent, scm)
+                self.registry.dispatch('scm', parser, xml_parent, scm)
         else:
             XML.SubElement(xml_parent, 'scm', {'class': 'hudson.scm.NullSCM'})

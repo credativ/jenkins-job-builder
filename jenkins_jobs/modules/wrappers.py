@@ -85,13 +85,26 @@ def ansicolor(parser, xml_parent, data):
     Requires the Jenkins `Ansi Color Plugin.
     <https://wiki.jenkins-ci.org/display/JENKINS/AnsiColor+Plugin>`_
 
-    Example::
+    :arg string colormap: (optional) color mapping to use
+
+    Examples::
 
       wrappers:
         - ansicolor
+
+      # Explicitly setting the colormap
+      wrappers:
+        - ansicolor:
+            colormap: vga
     """
-    XML.SubElement(xml_parent,
-                   'hudson.plugins.ansicolor.AnsiColorBuildWrapper')
+    cwrapper = XML.SubElement(
+        xml_parent,
+        'hudson.plugins.ansicolor.AnsiColorBuildWrapper')
+
+    # Optional colormap
+    colormap = data.get('colormap')
+    if colormap:
+        XML.SubElement(cwrapper, 'colorMapName').text = colormap
 
 
 def mask_passwords(parser, xml_parent, data):
@@ -111,10 +124,12 @@ def mask_passwords(parser, xml_parent, data):
 
 
 def workspace_cleanup(parser, xml_parent, data):
-    """yaml: workspace-cleanup
+    """yaml: workspace-cleanup (pre-build)
 
     See `Workspace Cleanup Plugin.
     <https://wiki.jenkins-ci.org/display/JENKINS/Workspace+Cleanup+Plugin>`_
+
+    The post-build workspace-cleanup is available as a publisher.
 
     :arg list include: list of files to be included
     :arg list exclude: list of files to be excluded
@@ -130,7 +145,7 @@ def workspace_cleanup(parser, xml_parent, data):
 
     p = XML.SubElement(xml_parent,
                        'hudson.plugins.ws__cleanup.PreBuildCleanup')
-    p.set("plugin", "ws-cleanup@0.10")
+    p.set("plugin", "ws-cleanup@0.14")
     if "include" in data or "exclude" in data:
         patterns = XML.SubElement(p, 'patterns')
 
@@ -297,8 +312,33 @@ def inject(parser, xml_parent, data):
     XML.SubElement(info, 'loadFilesFromMaster').text = 'false'
 
 
+def env_file(parser, xml_parent, data):
+    """yaml: env-file
+    Add or override environment variables to the whole build process
+    Requires the Jenkins `Environment File Plugin.
+    <https://wiki.jenkins-ci.org/display/JENKINS/Envfile+Plugin>`_
+
+    :arg str properties-file: path to the properties file (default '')
+
+    Example::
+
+      wrappers:
+        - env-file:
+            properties-file: ${WORKSPACE}/foo
+    """
+    eib = XML.SubElement(xml_parent,
+                         'hudson.plugins.envfile.EnvFileBuildWrapper')
+    jenkins_jobs.modules.base.add_nonblank_xml_subelement(
+        eib, 'filePath', data.get('properties-file'))
+
+
 def jclouds(parser, xml_parent, data):
     """yaml: jclouds
+    Uses JClouds to provide slave launching on most of the currently
+    usable Cloud infrastructures.
+    Requires the Jenkins `JClouds Plugin.
+    <https://wiki.jenkins-ci.org/display/JENKINS/JClouds+Plugin>`_
+
     :arg bool single-use: Whether or not to terminate the slave after use
                           (default: False).
     :arg list instances: The name of the jclouds template to create an
@@ -365,12 +405,91 @@ def matrixtieparent(parser, xml_parent, data):
     tlabelname = XML.SubElement(twrapper, 'labelName')
     tlabelname.text = str(data['labelname'])
 
+def build_user_vars(parser, xml_parent, data):
+    """yaml: build-user-vars
+    Set environment variables to the value of the user that started the build.
+    Requires the Jenkins `Build User Vars Plugin.
+    <https://wiki.jenkins-ci.org/display/JENKINS/Build+User+Vars+Plugin>`_
+
+    Example::
+
+      wrappers:
+        - build-user-vars
+    """
+    XML.SubElement(xml_parent, 'org.jenkinsci.plugins.builduser.BuildUser')
+
+
+def release(parser, xml_parent, data):
+    """yaml: release
+    Add release build configuration
+    Requires the Jenkins `Release Plugin.
+    <https://wiki.jenkins-ci.org/display/JENKINS/Release+Plugin>`_
+
+    :arg bool keep-forever: Keep build forever (default is 'true')
+    :arg bool override-build-parameters: Enable build-parameter override
+    :arg string version-template: Release version template
+    :arg list parameters: Release parameters (see the :ref:`Parameters` module)
+    :arg list pre-build: Pre-build steps (see the :ref:`Builders` module)
+    :arg list post-build: Post-build steps (see :ref:`Builders`)
+    :arg list post-success: Post successful-build steps (see :ref:`Builders`)
+    :arg list post-failed: Post failed-build steps (see :ref:`Builders`)
+
+    Example::
+
+      wrappers:
+        - release:
+            keep-forever: false
+            parameters:
+                - string:
+                    name: RELEASE_BRANCH
+                    default: ''
+                    description: Git branch to release from.
+            post-success:
+                - shell: |
+                    #!/bin/bash
+                    copy_build_artefacts.sh
+
+    """
+    relwrap = XML.SubElement(xml_parent,
+                             'hudson.plugins.release.ReleaseWrapper')
+    # For 'keep-forever', the sense of the XML flag is the opposite of
+    # the YAML flag.
+    no_keep_forever = 'false'
+    if str(data.get('keep-forever', 'true')).lower() == 'false':
+        no_keep_forever = 'true'
+    XML.SubElement(relwrap, 'doNotKeepLog').text = no_keep_forever
+    XML.SubElement(relwrap, 'overrideBuildParameters').text = str(
+        data.get('override-build-parameters', 'false')).lower()
+    XML.SubElement(relwrap, 'releaseVersionTemplate').text = data.get(
+        'version-template', '')
+    for param in data.get('parameters', []):
+        parser.registry.dispatch('parameter', parser,
+                                 XML.SubElement(relwrap,
+                                                'parameterDefinitions'),
+                                 param)
+
+    builder_steps = {
+        'pre-build': 'preBuildSteps',
+        'post-build': 'postBuildSteps',
+        'post-success': 'postSuccessfulBuildSteps',
+        'post-fail': 'postFailedBuildSteps',
+    }
+    for step in builder_steps.keys():
+        for builder in data.get(step, []):
+            parser.registry.dispatch('builder', parser,
+                                     XML.SubElement(relwrap,
+                                                    builder_steps[step]),
+                                     builder)
+
+
 class Wrappers(jenkins_jobs.modules.base.Base):
     sequence = 80
+
+    component_type = 'wrapper'
+    component_list_type = 'wrappers'
 
     def gen_xml(self, parser, xml_parent, data):
         wrappers = XML.SubElement(xml_parent, 'buildWrappers')
 
         for wrap in data.get('wrappers', []):
-            self._dispatch('wrapper', 'wrappers',
-                           parser, wrappers, wrap)
+            self.registry.dispatch('wrapper', parser, wrappers, wrap)

@@ -18,6 +18,7 @@
 import os
 import hashlib
 import yaml
+import json
 import xml.etree.ElementTree as XML
 from xml.dom import minidom
 import jenkins
@@ -100,7 +101,7 @@ class YamlParser(object):
         newdata.update(data)
         return newdata
 
-    def generateXML(self):
+    def generateXML(self, jobs_filter=None):
         changed = True
         while changed:
             changed = False
@@ -110,6 +111,8 @@ class YamlParser(object):
                         changed = True
 
         for job in self.data.get('job', {}).values():
+            if jobs_filter and job['name'] not in jobs_filter:
+                continue
             logger.debug("XMLifying job '{0}'".format(job['name']))
             job = self.applyDefaults(job)
             self.getXMLForJob(job)
@@ -137,11 +140,12 @@ class YamlParser(object):
                         # Allow a group to override parameters set by a project
                         d = {}
                         d.update(project)
+                        d.update(jobparams)
                         d.update(group)
                         # Except name, since the group's name is not useful
                         d['name'] = project['name']
                         if template:
-                            self.getXMLForTemplateJob(d, template)
+                            self.getXMLForTemplateJob(d, template, jobs_filter)
                     continue
                 # see if it's a template
                 template = self.getJobTemplate(jobname)
@@ -149,9 +153,9 @@ class YamlParser(object):
                     d = {}
                     d.update(project)
                     d.update(jobparams)
-                    self.getXMLForTemplateJob(d, template)
+                    self.getXMLForTemplateJob(d, template, jobs_filter)
 
-    def getXMLForTemplateJob(self, project, template):
+    def getXMLForTemplateJob(self, project, template, jobs_filter=None):
         dimensions = []
         for (k, v) in project.items():
             if type(v) == list and k not in ['jobs']:
@@ -160,13 +164,39 @@ class YamlParser(object):
         # pass through the loop
         if len(dimensions) == 0:
             dimensions = [(("", ""),)]
+        checksums = set([])
         for values in itertools.product(*dimensions):
             params = copy.deepcopy(project)
             params.update(values)
-            logger.debug("Generating XML for template job {0}"
-                         " (params {1})".format(
-                             template['name'], params))
-            self.getXMLForJob(deep_format(template, params))
+            expanded = deep_format(template, params)
+
+            # Keep track of the resulting expansions to avoid
+            # regenerating the exact same job.  Whenever a project has
+            # different values for a parameter and that parameter is not
+            # used in the template, we ended up regenerating the exact
+            # same job.
+            # To achieve that we serialize the expanded template making
+            # sure the dict keys are always in the same order. Then we
+            # record the checksum in an unordered unique set which let
+            # us guarantee a group of parameters will not be added a
+            # second time.
+            uniq = json.dumps(expanded, sort_keys=True)
+            checksum = hashlib.md5(uniq).hexdigest()
+
+            # Lookup the checksum
+            if checksum not in checksums:
+
+                # We also want to skip XML generation whenever the user did
+                # not ask for that job.
+                job_name = expanded.get('name')
+                if jobs_filter and job_name not in jobs_filter:
+                    continue
+
+                logger.debug("Generating XML for template job {0}"
+                             " (params {1})".format(
+                                 template['name'], params))
+                self.getXMLForJob(expanded)
+                checksums.add(checksum)
 
     def getXMLForJob(self, data):
         kind = data.get('project-type', 'freestyle')
@@ -189,6 +219,7 @@ class YamlParser(object):
 class ModuleRegistry(object):
     def __init__(self, config):
         self.modules = []
+        self.modules_by_component_type = {}
         self.handlers = {}
         self.global_config = config
 
@@ -198,6 +229,8 @@ class ModuleRegistry(object):
             mod = Mod(self)
             self.modules.append(mod)
             self.modules.sort(lambda a, b: cmp(a.sequence, b.sequence))
+            if mod.component_type is not None:
+                self.modules_by_component_type[mod.component_type] = mod
 
     def registerHandler(self, category, name, method):
         cat_dict = self.handlers.get(category, {})
@@ -207,6 +240,65 @@ class ModuleRegistry(object):
 
     def getHandler(self, category, name):
         return self.handlers[category][name]
+
+    def dispatch(self, component_type,
+                 parser, xml_parent,
+                 component, template_data={}):
+        """This is a method that you can call from your implementation of
+        Base.gen_xml or component.  It allows modules to define a type
+        of component, and benefit from extensibility via Python
+        entry points and Jenkins Job Builder :ref:`Macros <macro>`.
+
+        :arg string component_type: the name of the component
+          (e.g., `builder`)
+        :arg YAMLParser parser: the global YMAL Parser
+        :arg Element xml_parent: the parent XML element
+        :arg dict template_data: values that should be interpolated into
+          the component definition
+
+        See :py:class:`jenkins_jobs.modules.base.Base` for how to register
+        components of a module.
+
+        See the Publishers module for a simple example of how to use
+        this method.
+        """
+
+        if component_type not in self.modules_by_component_type:
+            raise JenkinsJobsException("Unknown component type: "
+                                       "'{0}'.".format(component_type))
+
+        component_list_type = self.modules_by_component_type[component_type] \
+            .component_list_type
+
+        if isinstance(component, dict):
+            # The component is a sigleton dictionary of name: dict(args)
+            name, component_data = component.items()[0]
+            if template_data:
+                # Template data contains values that should be interpolated
+                # into the component definition
+                s = yaml.dump(component_data, default_flow_style=False)
+                s = s.format(**template_data)
+                component_data = yaml.load(s)
+        else:
+            # The component is a simple string name, eg "run-tests"
+            name = component
+            component_data = {}
+
+        # Look for a component function defined in an entry point
+        for ep in pkg_resources.iter_entry_points(
+            group='jenkins_jobs.{0}'.format(component_list_type), name=name):
+            func = ep.load()
+            func(parser, xml_parent, component_data)
+        else:
+            # Otherwise, see if it's defined as a macro
+            component = parser.data.get(component_type, {}).get(name)
+            if component:
+                for b in component[component_list_type]:
+                    # Pass component_data in as template data to this function
+                    # so that if the macro is invoked with arguments,
+                    # the arguments are interpolated into the real defn.
+                    self.dispatch(component_type,
+                                  parser, xml_parent, b, component_data)
 
 
 class XmlJob(object):
@@ -228,9 +320,12 @@ class XmlJob(object):
 
 
 class CacheStorage(object):
-    def __init__(self):
+    def __init__(self, jenkins_url):
         cache_dir = self.get_cache_dir()
-        self.cachefilename = os.path.join(cache_dir, 'jenkins_jobs_cache.yml')
+        # One cache per remote Jenkins URL:
+        host_vary = re.sub('[^A-Za-z0-9\-\~]', '_', jenkins_url)
+        self.cachefilename = os.path.join(
+            cache_dir, 'cache-host-jobs-' + host_vary + '.yml')
         try:
             yfile = file(self.cachefilename, 'r')
         except IOError:
@@ -300,7 +395,7 @@ class Builder(object):
     def __init__(self, jenkins_url, jenkins_user, jenkins_password,
                  config=None):
         self.jenkins = Jenkins(jenkins_url, jenkins_user, jenkins_password)
-        self.cache = CacheStorage()
+        self.cache = CacheStorage(jenkins_url)
         self.global_config = config
 
     def delete_job(self, name):
@@ -324,7 +419,9 @@ class Builder(object):
         for in_file in files_to_process:
             logger.debug("Parsing YAML file {0}".format(in_file))
             parser.parse(in_file)
-        parser.generateXML()
+        if names:
+            logger.debug("Will filter out jobs not in %s" % names)
+        parser.generateXML(names)
 
         parser.jobs.sort(lambda a, b: cmp(a.name, b.name))
 

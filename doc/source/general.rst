@@ -19,6 +19,7 @@ later.  There are a few basic optional fields for a Job definition::
       defaults: global
       disabled: false
       concurrent: true
+      workspace: /srv/build-area/job-name
       quiet-period: 5
       block-downstream: false
       block-upstream: false
@@ -43,6 +44,10 @@ later.  There are a few basic optional fields for a Job definition::
       Boolean value to set whether or not Jenkins can run this job
       concurrently. Defaults to ``false``.
 
+    * **workspace**:
+      Path for a custom workspace. Defaults to Jenkins default
+      configuration.
+
     * **quiet-period**:
       Number of seconds to wait between consecutive runs of this job.
       Defaults to ``0``.
@@ -56,6 +61,11 @@ later.  There are a few basic optional fields for a Job definition::
       Boolean value to set whether or not this job must block while
       upstream jobs are running. Upstream jobs are determined
       transitively. Defaults to ``false``.
+
+    * **auth-token**:
+      Specifies an authentication token that allows new builds to be
+      triggered by accessing a special predefined URL. Only those who
+      know the token will be able to trigger builds remotely.
 
 .. automodule:: general
    :members:
