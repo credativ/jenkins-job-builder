@@ -121,17 +121,11 @@ setuptools.setup(
             'aggregate-tests=jenkins_jobs.modules.publishers:aggregate_tests',
             'archive=jenkins_jobs.modules.publishers:archive',
             'deploy=jenkins_jobs.modules.publishers:deploy',
-            'trigger-parameterized-builds='
-            'jenkins_jobs.modules.publishers:trigger_parameterized_builds',
             'trigger=jenkins_jobs.modules.publishers:trigger',
             'coverage=jenkins_jobs.modules.publishers:coverage',
-            'cobertura=jenkins_jobs.modules.publishers:cobertura',
             'ftp=jenkins_jobs.modules.publishers:ftp',
             'junit=jenkins_jobs.modules.publishers:junit',
             'xunit=jenkins_jobs.modules.publishers:xunit',
-            'groovy-postbuild=jenkins_jobs.modules.publishers:'
-            'groovy_postbuild',
-            'violations=jenkins_jobs.modules.publishers:violations',
             'blame-upstream=jenkins_jobs.modules.publishers:blame_upstream',
             'build-publisher=jenkins_jobs.modules.publishers:build_publisher',
             'checkstyle=jenkins_jobs.modules.publishers:checkstyle',
@@ -139,14 +133,12 @@ setuptools.setup(
             'claim-build=jenkins_jobs.modules.publishers:claim_build',
             'cobertura=jenkins_jobs.modules.publishers:cobertura',
             'copy-to-master=jenkins_jobs.modules.publishers:copy_to_master',
-            'coverage=jenkins_jobs.modules.publishers:coverage',
             'cppcheck=jenkins_jobs.modules.publishers:cppcheck',
             'email=jenkins_jobs.modules.publishers:email',
             'email-ext=jenkins_jobs.modules.publishers:email_ext',
             ('emotional-jenkins=jenkins_jobs.modules.publishers:'
              'emotional_jenkins'),
             'fingerprint=jenkins_jobs.modules.publishers:fingerprint',
-            'ftp=jenkins_jobs.modules.publishers:ftp',
             'git=jenkins_jobs.modules.publishers:git',
             ('groovy-postbuild=jenkins_jobs.modules.publishers:'
              'groovy_postbuild'),
@@ -156,7 +148,6 @@ setuptools.setup(
             'jacoco=jenkins_jobs.modules.publishers:jacoco',
             'jira=jenkins_jobs.modules.publishers:jira',
             'join-trigger=jenkins_jobs.modules.publishers:join_trigger',
-            'junit=jenkins_jobs.modules.publishers:junit',
             'logparser=jenkins_jobs.modules.publishers:logparser',
             'maven-deploy=jenkins_jobs.modules.publishers:maven_deploy',
             'performance=jenkins_jobs.modules.publishers:performance',
@@ -171,7 +162,6 @@ setuptools.setup(
             'stash=jenkins_jobs.modules.publishers:stash',
             'tap=jenkins_jobs.modules.publishers:tap',
             'text-finder=jenkins_jobs.modules.publishers:text_finder',
-            'trigger=jenkins_jobs.modules.publishers:trigger',
             ('trigger-parameterized-builds='
              'jenkins_jobs.modules.publishers:trigger_parameterized_builds'),
             'violations=jenkins_jobs.modules.publishers:violations',
@@ -179,7 +169,6 @@ setuptools.setup(
             ('workspace-cleanup=jenkins_jobs.modules.publishers:'
              'workspace_cleanup'),
             'xml-summary=jenkins_jobs.modules.publishers:xml_summary',
-            'xunit=jenkins_jobs.modules.publishers:xunit',
         ],
         'jenkins_jobs.scm': [
             'git=jenkins_jobs.modules.scm:git',
@@ -199,7 +188,6 @@ setuptools.setup(
         'jenkins_jobs.wrappers': [
             'ansicolor=jenkins_jobs.modules.wrappers:ansicolor',
             'build-name=jenkins_jobs.modules.wrappers:build_name',
-            'build-user-vars=jenkins_jobs.modules.wrappers:build_user_vars',
             'copy-to-slave=jenkins_jobs.modules.wrappers:copy_to_slave',
             'env-file=jenkins_jobs.modules.wrappers:env_file',
             'inject=jenkins_jobs.modules.wrappers:inject',
