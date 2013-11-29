@@ -33,6 +33,7 @@ Example::
 
 import xml.etree.ElementTree as XML
 import jenkins_jobs.modules.base
+from jenkins_jobs.modules.builders import create_builders
 
 
 def timeout(parser, xml_parent, data):
@@ -41,8 +42,21 @@ def timeout(parser, xml_parent, data):
     Requires the Jenkins `Build Timeout Plugin.
     <https://wiki.jenkins-ci.org/display/JENKINS/Build-timeout+Plugin>`_
 
-    :arg int timeout: Abort the build after this number of minutes
     :arg bool fail: Mark the build as failed (default false)
+    :arg bool write-description: Write a message in the description
+        (default false)
+    :arg int timeout: Abort the build after this number of minutes (default 3)
+    :arg str type: Timeout type to use (default absolute)
+    :arg int elastic-percentage: Percentage of the three most recent builds
+        where to declare a timeout (default 0)
+    :arg int elastic-default-timeout: Timeout to use if there were no previous
+        builds (default 3)
+
+    :type values:
+     * **likely-stuck**
+     * **elastic**
+     * **absolute**
+
 
     Example::
 
@@ -50,18 +64,38 @@ def timeout(parser, xml_parent, data):
         - timeout:
             timeout: 90
             fail: true
+            type: absolute
+
+      wrappers:
+        - timeout:
+            fail: false
+            type: likely-stuck
+
+      wrappers:
+        - timeout:
+            fail: true
+            elastic-percentage: 150
+            elastic-default-timeout: 90
+            type: elastic
+
     """
     twrapper = XML.SubElement(xml_parent,
                               'hudson.plugins.build__timeout.'
                               'BuildTimeoutWrapper')
-    tminutes = XML.SubElement(twrapper, 'timeoutMinutes')
-    tminutes.text = str(data['timeout'])
-    failbuild = XML.SubElement(twrapper, 'failBuild')
-    fail = data.get('fail', False)
-    if fail:
-        failbuild.text = 'true'
-    else:
-        failbuild.text = 'false'
+    XML.SubElement(twrapper, 'timeoutMinutes').text = str(
+        data.get('timeout', 3))
+    XML.SubElement(twrapper, 'failBuild').text = str(
+        data.get('fail', 'false')).lower()
+    XML.SubElement(twrapper, 'writingDescription').text = str(
+        data.get('write-description', 'false')).lower()
+    XML.SubElement(twrapper, 'timeoutPercentage').text = str(
+        data.get('elastic-percentage', 0))
+    XML.SubElement(twrapper, 'timeoutMinutesElasticDefault').text = str(
+        data.get('elastic-default-timeout', 3))
+    tout_type = str(data.get('type', 'absolute')).lower()
+    if tout_type == 'likely-stuck':
+        tout_type = 'likelyStuck'
+    XML.SubElement(twrapper, 'timeoutType').text = tout_type
 
 
 def timestamps(parser, xml_parent, data):
@@ -126,7 +160,7 @@ def mask_passwords(parser, xml_parent, data):
 def workspace_cleanup(parser, xml_parent, data):
     """yaml: workspace-cleanup (pre-build)
 
-    See `Workspace Cleanup Plugin.
+    Requires the Jenkins `Workspace Cleanup Plugin.
     <https://wiki.jenkins-ci.org/display/JENKINS/Workspace+Cleanup+Plugin>`_
 
     The post-build workspace-cleanup is available as a publisher.
@@ -160,7 +194,47 @@ def workspace_cleanup(parser, xml_parent, data):
         XML.SubElement(ptrn, 'type').text = "EXCLUDE"
 
     deldirs = XML.SubElement(p, 'deleteDirs')
-    deldirs.text = str(data.get("dirmatch", "false")).lower()
+    deldirs.text = str(data.get("dirmatch", False)).lower()
+
+
+def rvm_env(parser, xml_parent, data):
+    """yaml: rvm-env
+    Set the RVM implementation
+    Requires the Jenkins `Rvm Plugin.
+    <https://wiki.jenkins-ci.org/display/JENKINS/RVM+Plugin>`_
+
+    :arg str implementation: Type of implementation. Syntax is RUBY[@GEMSET],
+                             such as '1.9.3' or 'jruby@foo'.
+
+    Example::
+
+      wrappers:
+        - rvm-env:
+            implementation: 1.9.3
+    """
+    rpo = XML.SubElement(xml_parent,
+                         'ruby-proxy-object')
+
+    ro_class = "Jenkins::Plugin::Proxies::BuildWrapper"
+    ro = XML.SubElement(rpo,
+                        'ruby-object',
+                        {'ruby-class': ro_class,
+                         'pluginid': 'rvm'})
+
+    o = XML.SubElement(ro,
+                       'object',
+                       {'ruby-class': 'RvmWrapper',
+                        'pluginid': 'rvm'})
+
+    XML.SubElement(o,
+                   'impl',
+                   {'pluginid': 'rvm',
+                    'ruby-class': 'String'}).text = data['implementation']
+
+    XML.SubElement(ro,
+                   'pluginid',
+                   {'pluginid': 'rvm',
+                    'ruby-class': 'String'}).text = "rvm"
 
 
 def build_name(parser, xml_parent, data):
@@ -265,9 +339,9 @@ def copy_to_slave(parser, xml_parent, data):
     XML.SubElement(cs, 'includes').text = ','.join(data.get('includes', ['']))
     XML.SubElement(cs, 'excludes').text = ','.join(data.get('excludes', ['']))
     XML.SubElement(cs, 'flatten').text = \
-        str(data.get('flatten', 'false')).lower()
+        str(data.get('flatten', False)).lower()
     XML.SubElement(cs, 'includeAntExcludes').text = \
-        str(data.get('include-ant-excludes', 'false')).lower()
+        str(data.get('include-ant-excludes', False)).lower()
 
     rel = str(data.get('relative-to', 'userContent'))
     opt = ('userContent', 'home', 'workspace')
@@ -310,6 +384,39 @@ def inject(parser, xml_parent, data):
     jenkins_jobs.modules.base.add_nonblank_xml_subelement(
         info, 'scriptContent', data.get('script-content'))
     XML.SubElement(info, 'loadFilesFromMaster').text = 'false'
+
+
+def inject_passwords(parser, xml_parent, data):
+    """yaml: inject-passwords
+    Inject passwords to the build as environment variables.
+    Requires the Jenkins `EnvInject Plugin.
+    <https://wiki.jenkins-ci.org/display/JENKINS/EnvInject+Plugin>`_
+
+    :arg bool global: inject global passwords to the job
+    :arg list job-passwords: key value pair of job passwords
+
+        :Parameter: * **name** (`str`) Name of password
+                    * **password** (`str`) Encrypted password
+
+    Example::
+
+      wrappers:
+        - inject-passwords:
+            global: true
+            job-passwords:
+              - name: ADMIN
+                password: 0v8ZCNaHwq1hcx+sHwRLdg9424uBh4Pin0zO4sBIb+U=
+    """
+    eib = XML.SubElement(xml_parent, 'EnvInjectPasswordWrapper')
+    XML.SubElement(eib, 'injectGlobalPasswords').text = \
+        str(data.get('global', False)).lower()
+    entries = XML.SubElement(eib, 'passwordEntries')
+    passwords = data.get('job-passwords', [])
+    if passwords:
+        for password in passwords:
+            entry = XML.SubElement(entries, 'EnvInjectPasswordEntry')
+            XML.SubElement(entry, 'name').text = password['name']
+            XML.SubElement(entry, 'value').text = password['password']
 
 
 def env_file(parser, xml_parent, data):
@@ -455,11 +562,11 @@ def release(parser, xml_parent, data):
     # For 'keep-forever', the sense of the XML flag is the opposite of
     # the YAML flag.
     no_keep_forever = 'false'
-    if str(data.get('keep-forever', 'true')).lower() == 'false':
+    if str(data.get('keep-forever', True)).lower() == 'false':
         no_keep_forever = 'true'
     XML.SubElement(relwrap, 'doNotKeepLog').text = no_keep_forever
     XML.SubElement(relwrap, 'overrideBuildParameters').text = str(
-        data.get('override-build-parameters', 'false')).lower()
+        data.get('override-build-parameters', False)).lower()
     XML.SubElement(relwrap, 'releaseVersionTemplate').text = data.get(
         'version-template', '')
     for param in data.get('parameters', []):
@@ -480,6 +587,183 @@ def release(parser, xml_parent, data):
                                      XML.SubElement(relwrap,
                                                     builder_steps[step]),
                                      builder)
+
+
+def sauce_ondemand(parser, xml_parent, data):
+    """yaml: sauce-ondemand
+    Allows you to integrate Sauce OnDemand with Jenkins.  You can
+    automate the setup and tear down of Sauce Connect and integrate
+    the Sauce OnDemand results videos per test.  Requires the Jenkins `Sauce
+    OnDemand Plugin
+    <https://wiki.jenkins-ci.org/display/JENKINS/Sauce+OnDemand+Plugin>`_.
+
+    :arg bool enable-sauce-connect: launches a SSH tunnel from their cloud
+        to your private network (default false)
+    :arg str sauce-host: The name of the selenium host to be used.  For
+        tests run using Sauce Connect, this should be localhost.
+        ondemand.saucelabs.com can also be used to conenct directly to
+        Sauce OnDemand,  The value of the host will be stored in the
+        SAUCE_ONDEMAND_HOST environment variable.  (default '')
+    :arg str sauce-port: The name of the Selenium Port to be used.  For
+        tests run using Sauce Connect, this should be 4445.  If using
+        ondemand.saucelabs.com for the Selenium Host, then use 4444.
+        The value of the port will be stored in the SAUCE_ONDEMAND_PORT
+        environment variable.  (default '')
+    :arg str override-username: If set then api-access-key must be set.
+        Overrides the username from the global config. (default '')
+    :arg str override-api-access-key: If set then username must be set.
+        Overrides the api-access-key set in the global config. (default '')
+    :arg str starting-url: The value set here will be stored in the
+        SELENIUM_STARTING_ULR environment variable.  Only used when type
+        is selenium. (default '')
+    :arg str type: Type of test to run (default selenium)
+
+        :type values:
+          * **selenium**
+          * **webdriver**
+    :arg list platforms: The platforms to run the tests on.  Platforms
+        supported are dynamically retrieved from sauce labs.  The format of
+        the values has only the first letter capitalized, no spaces, underscore
+        between os and version, underscore in internet_explorer, everything
+        else is run together.  If there are not multiple version of the browser
+        then just the first version number is used.
+        Examples: Mac_10.8iphone5.1 or Windows_2003firefox10
+        or Windows_2012internet_explorer10 (default '')
+    :arg bool launch-sauce-connect-on-slave: Whether to launch sauce connect
+        on the slave. (default false)
+    :arg str https-protocol: The https protocol to use (default '')
+    :arg str sauce-connect-options: Options to pass to sauce connect
+        (default '')
+
+    Example::
+
+      wrappers:
+        - sauce-ondemand:
+            enable-sauce-connect: true
+            sauce-host: foo
+            sauce-port: 8080
+            override-username: foo
+            override-api-access-key: 123lkj123kh123l;k12323
+            type: webdriver
+            platforms:
+              - Linuxandroid4
+              - Linuxfirefox10
+              - Linuxfirefox11
+            launch-sauce-connect-on-slave: true
+    """
+    sauce = XML.SubElement(xml_parent, 'hudson.plugins.sauce__ondemand.'
+                           'SauceOnDemandBuildWrapper')
+    XML.SubElement(sauce, 'enableSauceConnect').text = str(data.get(
+        'enable-sauce-connect', False)).lower()
+    host = data.get('sauce-host', '')
+    XML.SubElement(sauce, 'seleniumHost').text = host
+    port = data.get('sauce-port', '')
+    XML.SubElement(sauce, 'seleniumPort').text = port
+    # Optional override global authentication
+    username = data.get('override-username')
+    key = data.get('override-api-access-key')
+    if username and key:
+        cred = XML.SubElement(sauce, 'credentials')
+        XML.SubElement(cred, 'username').text = username
+        XML.SubElement(cred, 'apiKey').text = key
+    atype = data.get('type', 'selenium')
+    info = XML.SubElement(sauce, 'seleniumInformation')
+    if atype == 'selenium':
+        url = data.get('starting-url', '')
+        XML.SubElement(info, 'startingURL').text = url
+        browsers = XML.SubElement(info, 'seleniumBrowsers')
+        for platform in data['platforms']:
+            XML.SubElement(browsers, 'string').text = platform
+        XML.SubElement(info, 'isWebDriver').text = 'false'
+        XML.SubElement(sauce, 'seleniumBrowsers',
+                       {'reference': '../seleniumInformation/'
+                       'seleniumBrowsers'})
+    if atype == 'webdriver':
+        browsers = XML.SubElement(info, 'webDriverBrowsers')
+        for platform in data['platforms']:
+            XML.SubElement(browsers, 'string').text = platform
+        XML.SubElement(info, 'isWebDriver').text = 'true'
+        XML.SubElement(sauce, 'webDriverBrowsers',
+                       {'reference': '../seleniumInformation/'
+                       'webDriverBrowsers'})
+    XML.SubElement(sauce, 'launchSauceConnectOnSlave').text = str(data.get(
+        'launch-sauce-connect-on-slave', False)).lower()
+    protocol = data.get('https-protocol', '')
+    XML.SubElement(sauce, 'httpsProtocol').text = protocol
+    options = data.get('sauce-connect-options', '')
+    XML.SubElement(sauce, 'options').text = options
+
+
+def pathignore(parser, xml_parent, data):
+    """yaml: pathignore
+    This plugin allows SCM-triggered jobs to ignore
+    build requests if only certain paths have changed.
+
+    Requires the Jenkins `Pathignore Plugin.
+    <https://wiki.jenkins-ci.org/display/JENKINS/Pathignore+Plugin>`_
+
+    :arg str ignored: A set of patterns to define ignored changes
+
+    Example::
+
+      wrappers:
+        - pathignore:
+            ignored: "docs, tests"
+    """
+    ruby = XML.SubElement(xml_parent, 'ruby-proxy-object')
+    robj = XML.SubElement(ruby, 'ruby-object', attrib={
+        'pluginid': 'pathignore',
+        'ruby-class': 'Jenkins::Plugin::Proxies::BuildWrapper'
+    })
+    pluginid = XML.SubElement(robj, 'pluginid', {
+        'pluginid': 'pathignore', 'ruby-class': 'String'
+    })
+    pluginid.text = 'pathignore'
+    obj = XML.SubElement(robj, 'object', {
+        'ruby-class': 'PathignoreWrapper', 'pluginid': 'pathignore'
+    })
+    ignored = XML.SubElement(obj, 'ignored__paths', {
+        'pluginid': 'pathignore', 'ruby-class': 'String'
+    })
+    ignored.text = data.get('ignored', '')
+    XML.SubElement(obj, 'invert__ignore', {
+        'ruby-class': 'FalseClass', 'pluginid': 'pathignore'
+    })
+
+
+def pre_scm_buildstep(parser, xml_parent, data):
+    """yaml: pre-scm-buildstep
+    Execute a Build Step before running the SCM
+    Requires the Jenkins `pre-scm-buildstep.
+    <https://wiki.jenkins-ci.org/display/JENKINS/pre-scm-buildstep>`_
+
+    :arg list buildsteps: List of build steps to execute
+
+        :Buildstep: Any acceptable builder, as seen in the example
+
+    Example::
+
+      wrappers:
+        - pre-scm-buildstep:
+          - shell: |
+              #!/bin/bash
+              echo "Doing somethiung cool"
+          - shell: |
+              #!/bin/zsh
+              echo "Doing somethin cool with zsh"
+          - ant: "target1 target2"
+            ant-name: "Standard Ant"
+          - inject:
+               properties-file: example.prop
+               properties-content: EXAMPLE=foo-bar
+    """
+    bsp = XML.SubElement(xml_parent,
+                         'org.jenkinsci.plugins.preSCMbuildstep.'
+                         'PreSCMBuildStepsWrapper')
+    bs = XML.SubElement(bsp, 'buildSteps')
+    for step in data:
+        for edited_node in create_builders(parser, step):
+            bs.append(edited_node)
 
 
 class Wrappers(jenkins_jobs.modules.base.Base):

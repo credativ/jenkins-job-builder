@@ -36,6 +36,42 @@ import xml.etree.ElementTree as XML
 import jenkins_jobs.modules.base
 
 
+def ownership(parser, xml_parent, data):
+    """yaml: ownership
+    Plugin provides explicit ownership for jobs and slave nodes.
+    Requires the Jenkins `Ownership Plugin.
+    <https://wiki.jenkins-ci.org/display/JENKINS/Ownership+Plugin>`_
+
+    :arg bool enabled: whether ownership enabled (default : true)
+    :arg str owner: the owner of job
+    :arg list co-owners: list of job co-owners
+
+    Example::
+
+        properties:
+         - ownership:
+            owner: abraverm
+            co-owners:
+             - lbednar
+             - edolinin
+    """
+    ownership_plugin = \
+        XML.SubElement(xml_parent,
+                       'com.synopsys.arc.'
+                       'jenkins.plugins.ownership.jobs.JobOwnerJobProperty')
+    ownership = XML.SubElement(ownership_plugin, 'ownership')
+    owner = str(data.get('enabled', True)).lower()
+    XML.SubElement(ownership, 'ownershipEnabled').text = owner
+
+    XML.SubElement(ownership, 'primaryOwnerId').text = data.get('owner')
+
+    coowners = data.get('co-owners', [])
+    if coowners:
+        coownersIds = XML.SubElement(ownership, 'coownersIds')
+        for coowner in coowners:
+            XML.SubElement(coownersIds, 'string').text = coowner
+
+
 def promoted_build(parser, xml_parent, data):
     """yaml: promoted-build
     Marks a build for promotion. A promotion process with an identical
@@ -167,13 +203,13 @@ def inject(parser, xml_parent, data):
         info, 'groovyScriptContent', data.get('groovy-content'))
 
     XML.SubElement(info, 'loadFilesFromMaster').text = str(
-        data.get('load-from-master', 'false')).lower()
+        data.get('load-from-master', False)).lower()
     XML.SubElement(inject, 'on').text = str(
-        data.get('enabled', 'true')).lower()
+        data.get('enabled', True)).lower()
     XML.SubElement(inject, 'keepJenkinsSystemVariables').text = str(
-        data.get('keep-system-variables', 'true')).lower()
+        data.get('keep-system-variables', True)).lower()
     XML.SubElement(inject, 'keepBuildVariables').text = str(
-        data.get('keep-build-variables', 'true')).lower()
+        data.get('keep-build-variables', True)).lower()
 
 
 def authenticated_build(parser, xml_parent, data):
@@ -306,7 +342,7 @@ def extended_choice(parser, xml_parent, data):
     XML.SubElement(extended, 'name').text = data['name']
     XML.SubElement(extended, 'description').text = data.get('description', '')
     XML.SubElement(extended, 'quoteValue').text = str(data.get('quote-value',
-                                                      'false')).lower()
+                                                      False)).lower()
     XML.SubElement(extended, 'visibleItemCount').text = data.get(
         'visible-items', '5')
     choice = data.get('type', 'single-select')
@@ -351,6 +387,45 @@ def priority_sorter(parser, xml_parent, data):
                                          'PrioritySorterJobProperty')
     XML.SubElement(priority_sorter_tag, 'priority').text = str(
         data['priority'])
+
+
+def build_blocker(parser, xml_parent, data):
+    """yaml: build-blocker
+    This plugin keeps the actual job in the queue
+    if at least one name of currently running jobs
+    is matching with one of the given regular expressions.
+
+    Requires the Jenkins `Build Blocker Plugin.
+    <https://wiki.jenkins-ci.org/display/JENKINS/Build+Blocker+Plugin>`_
+
+    :arg bool use-build-blocker: Enable or disable build blocker
+        (optional, defaults to True)
+    :arg list blocking-jobs: One regular expression per line
+        to select blocking jobs by their names. (required)
+
+
+    Example::
+
+        properties:
+          - build-blocker:
+              use-build-blocker: true
+              blocking-jobs:
+                - ".*-deploy"
+                - "^maintainance.*"
+    """
+    blocker = XML.SubElement(xml_parent,
+                             'hudson.plugins.'
+                             'buildblocker.BuildBlockerProperty')
+    if data is None or 'blocking-jobs' not in data:
+        raise Exception('blocking-jobs field is missing')
+    elif data.get('blocking-jobs', None) is None:
+        raise Exception('blocking-jobs list must not be empty')
+    XML.SubElement(blocker, 'useBuildBlocker').text = str(
+        data.get('use-build-blocker', True)).lower()
+    jobs = ''
+    for value in data['blocking-jobs']:
+        jobs = jobs + value + '\n'
+    XML.SubElement(blocker, 'blockingJobs').text = jobs
 
 
 class Properties(jenkins_jobs.modules.base.Base):

@@ -35,13 +35,18 @@ def main():
     parser_update = subparser.add_parser('update')
     parser_update.add_argument('path', help='Path to YAML file or directory')
     parser_update.add_argument('names', help='name(s) of job(s)', nargs='*')
+    parser_update.add_argument('--delete-old', help='Delete obsolete jobs',
+                               action='store_true',
+                               dest='delete_old', default=False,)
     parser_test = subparser.add_parser('test')
     parser_test.add_argument('path', help='Path to YAML file or directory')
-    parser_test.add_argument('-o', dest='output_dir',
+    parser_test.add_argument('-o', dest='output_dir', required=True,
                              help='Path to output XML')
     parser_test.add_argument('name', help='name(s) of job(s)', nargs='*')
     parser_delete = subparser.add_parser('delete')
     parser_delete.add_argument('name', help='name of job', nargs='+')
+    parser_delete.add_argument('-p', '--path', default=None,
+                               help='Path to YAML file or directory')
     subparser.add_parser('delete-all',
                          help='Delete *ALL* jobs from Jenkins server, '
                          'including those not managed by Jenkins Job '
@@ -49,6 +54,14 @@ def main():
     parser.add_argument('--conf', dest='conf', help='Configuration file')
     parser.add_argument('-l', '--log_level', dest='log_level', default='info',
                         help="Log level (default: %(default)s)")
+    parser.add_argument(
+        '--ignore-cache', action='store_true',
+        dest='ignore_cache', default=False,
+        help='Ignore the cache and update the jobs anyhow (that will only '
+             'flush the specified jobs cache)')
+    parser.add_argument(
+        '--flush-cache', action='store_true', dest='flush_cache',
+        default=False, help='Flush all the cache entries before updating')
     options = parser.parse_args()
 
     options.log_level = getattr(logging, options.log_level.upper(),
@@ -66,14 +79,18 @@ def main():
         if os.path.isfile(localconf):
             conf = localconf
 
+    config = ConfigParser.ConfigParser()
     if os.path.isfile(conf):
         logger.debug("Reading config from {0}".format(conf))
         conffp = open(conf, 'r')
-        config = ConfigParser.ConfigParser()
         config.readfp(conffp)
     elif options.command == 'test':
+        ## to avoid the 'no section' and 'no option' errors when testing
+        config.add_section("jenkins")
+        config.set("jenkins", "url", "http://localhost:8080")
+        config.set("jenkins", "user", None)
+        config.set("jenkins", "password", None)
         logger.debug("Not reading config for test output generation")
-        config = {}
     else:
         raise jenkins_jobs.errors.JenkinsJobsException(
             "A valid configuration file is required when not run as a test")
@@ -82,12 +99,14 @@ def main():
     builder = jenkins_jobs.builder.Builder(config.get('jenkins', 'url'),
                                            config.get('jenkins', 'user'),
                                            config.get('jenkins', 'password'),
-                                           config)
+                                           config,
+                                           ignore_cache=options.ignore_cache,
+                                           flush_cache=options.flush_cache)
 
     if options.command == 'delete':
         for job in options.name:
-            logger.info("Deleting job {0}".format(job))
-            builder.delete_job(job)
+            logger.info("Deleting jobs in [{0}]".format(job))
+            builder.delete_job(job, options.path)
     elif options.command == 'delete-all':
         confirm('Sure you want to delete *ALL* jobs from Jenkins server?\n'
                 '(including those not managed by Jenkins Job Builder)')
@@ -96,7 +115,9 @@ def main():
     elif options.command == 'update':
         logger.info("Updating jobs in {0} ({1})".format(
             options.path, options.names))
-        builder.update_job(options.path, options.names)
+        jobs = builder.update_job(options.path, options.names)
+        if options.delete_old:
+            builder.delete_old_managed(keep=[x.name for x in jobs])
     elif options.command == 'test':
         builder.update_job(options.path, options.name,
                            output_dir=options.output_dir)

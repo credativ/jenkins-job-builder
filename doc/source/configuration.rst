@@ -34,6 +34,7 @@ later.  There are a few basic optional fields for a Job definition::
       project-type: freestyle
       defaults: global
       disabled: false
+      display-name: 'Fancy job name'
       concurrent: true
       quiet-period: 5
       workspace: /srv/build-area/job-name
@@ -41,7 +42,8 @@ later.  There are a few basic optional fields for a Job definition::
       block-upstream: false
 
 **project-type**
-  Defaults to "freestyle", but "maven" can also be specified.
+  Defaults to "freestyle", but "maven" as well as "multijob" or "flow"
+  can also be specified.
 
 **defaults**
   Specifies a set of `Defaults`_ to use for this job, defaults to
@@ -54,6 +56,13 @@ later.  There are a few basic optional fields for a Job definition::
 **disabled**
   Boolean value to set whether or not this job should be disabled in
   Jenkins. Defaults to ``false`` (job will be enabled).
+
+**display-name**
+  Optional name shown for the project throughout the Jenkins web GUI in place
+  of the actual job name.  The jenkins_jobs tool cannot fully remove this trait
+  once it is set, so use caution when setting it.  Setting it to the same
+  string as the project name is an effective un-set workaround.  Alternately,
+  the field can be cleared manually using the Jenkins web interface.
 
 **concurrent**
   Boolean value to set whether or not Jenkins can run this job
@@ -98,7 +107,10 @@ enclosing them in braces, e.g., ``{name}`` will substitute the
 variable `name`.  When using a variable in a string field, it is good
 practice to wrap the entire string in quotes, even if the rules of
 YAML syntax don't require it because the value of the variable may
-require quotes after substitution.
+require quotes after substitution. In the rare situation that you must
+encode braces within literals inside a template (for example a shell
+function definition in a builder), doubling the braces will prevent
+them from being interpreted as a template variable.
 
 You must include a variable in the ``name`` field of a Job Template
 (otherwise, every instance would have the same name).  For example::
@@ -121,9 +133,9 @@ provide values for the variables in a `Job Template`_.  It looks like
 this::
 
   - project:
-    name: project-name
-    jobs:
-      - '{name}-unit-tests'
+      name: project-name
+      jobs:
+        - '{name}-unit-tests'
 
 Any number of arbitrarily named additional fields may be specified,
 and they will be available for variable substitution in the job
@@ -138,9 +150,9 @@ substitutions as follows::
       name: project-name
       jobs:
         - '{name}-unit-tests':
-          mail-to: developer@nowhere.net
-	- '{name}-perf-tests':
-          mail-to: projmanager@nowhere.net
+            mail-to: developer@nowhere.net
+        - '{name}-perf-tests':
+            mail-to: projmanager@nowhere.net
 
 If a variable is a list, the job template will be realized with the
 variable set to each value in the list.  Multiple lists will lead to
@@ -181,7 +193,18 @@ the Job Templates in the Job Group will be realized.  For example::
         - python-jobs
 
 Would cause the jobs `foo-python-26` and `foo-python-27` to be created
-in Jekins.
+in Jenkins.
+
+The ``jobs:`` list can also allow for specifying job-specific
+substitutions as follows::
+
+  - job-group:
+      name: job-group-name
+      jobs:
+        - '{name}-build':
+            pipeline-next: '{name}-upload'
+        - '{name}-upload':
+            pipeline-next: ''
 
 .. _macro:
 
@@ -196,9 +219,8 @@ will instruct Jenkins to execute "make test" as part of the job::
 
   - job:
       name: foo-test
-
-    builders:
-      - shell: 'make test'
+      builders:
+        - shell: 'make test'
 
 If you wanted to define a macro (which won't save much typing in this
 case, but could still be useful to centralize the definition of a
@@ -296,6 +318,7 @@ The bulk of the job definitions come from the following modules.
 .. toctree::
    :maxdepth: 2
 
+   project_flow
    project_freestyle
    project_maven
    project_matrix
@@ -312,3 +335,20 @@ The bulk of the job definitions come from the following modules.
    triggers
    wrappers
    zuul
+
+
+Module Execution
+----------------
+
+The jenkins job builder modules are executed in sequence.
+
+Generally the sequence is:
+    #. parameters/properties
+    #. scm
+    #. triggers
+    #. wrappers
+    #. prebuilders (maven only)
+    #. builders (maven, freestyle, matrix, etc..)
+    #. postbuilders (maven only)
+    #. publishers/reporters/notifications
+

@@ -1,4 +1,4 @@
-# opyright 2012 Hewlett-Packard Development Company, L.P.
+# Copyright 2012 Hewlett-Packard Development Company, L.P.
 # Copyright 2012 Varnish Software AS
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -71,6 +71,9 @@ def copyartifact(parser, xml_parent, data):
     :arg str filter: what files to copy
     :arg str target: Target base directory for copy, blank means use workspace
     :arg bool flatten: Flatten directories (default: false)
+    :arg bool optional: If the artifact is missing (for any reason) and
+        optional is true, the build won't fail because of this builder
+        (default: false)
     :arg str which-build: which build to get artifacts from
         (optional, default last-successful)
     :arg str build-number: specifies the build number to get when
@@ -83,6 +86,8 @@ def copyartifact(parser, xml_parent, data):
         last successful build when upstream-build is specified as which-build
     :arg string param: specifies to use a build parameter to get the build when
         build-param is specified as which-build
+    :arg string parameter-filters: Filter matching jobs based on these
+        parameters (optional)
     :which-build values:
       * **last-successful**
       * **specific-build**
@@ -109,8 +114,9 @@ def copyartifact(parser, xml_parent, data):
             target: /home/foo
             which-build: specific-build
             build-number: 123
+            optional: true
             flatten: true
-
+            parameter-filters: PUBLISH=true
     """
     t = XML.SubElement(xml_parent, 'hudson.plugins.copyartifact.CopyArtifact')
     #'project' element is used for copy artifact version 1.26+
@@ -121,6 +127,9 @@ def copyartifact(parser, xml_parent, data):
     XML.SubElement(t, 'target').text = data.get("target", "")
     flatten = data.get("flatten", False)
     XML.SubElement(t, 'flatten').text = str(flatten).lower()
+    optional = data.get('optional', False)
+    XML.SubElement(t, 'optional').text = str(optional).lower()
+    XML.SubElement(t, 'parameters').text = data.get("parameter-filters", "")
     select = data.get('which-build', 'last-successful')
     selectdict = {'last-successful': 'StatusBuildSelector',
                   'specific-build': 'SpecificBuildSelector',
@@ -152,10 +161,10 @@ def copyartifact(parser, xml_parent, data):
         XML.SubElement(selector, 'buildNumber').text = data['build-number']
     if select == 'last-successful':
         XML.SubElement(selector, 'stable').text = str(
-            data.get('stable', 'false')).lower()
+            data.get('stable', False)).lower()
     if select == 'upstream-build':
         XML.SubElement(selector, 'fallbackToLastSuccessful').text = str(
-            data.get('fallback-to-last-successful', 'false')).lower()
+            data.get('fallback-to-last-successful', False)).lower()
     if select == 'permalink':
         XML.SubElement(selector, 'id').text = permalinkdict[permalink]
     if select == 'build-param':
@@ -699,9 +708,9 @@ def conditional_step(parser, xml_parent, data):
         'fail': evaluation_classes_pkg + '.BuildStepRunner$Fail',
         'mark-unstable': evaluation_classes_pkg + '.BuildStepRunner$Unstable',
         'run-and-mark-unstable': evaluation_classes_pkg +
-        'BuildStepRunner$RunUnstable',
+        '.BuildStepRunner$RunUnstable',
         'run': evaluation_classes_pkg + '.BuildStepRunner$Run',
-        'dont-run': evaluation_classes_pkg + 'BuildStepRunner$DontRun',
+        'dont-run': evaluation_classes_pkg + '.BuildStepRunner$DontRun',
     }
     evaluation_class = evaluation_classes[data.get('on-evaluation-failure',
                                                    'fail')]
@@ -762,6 +771,12 @@ def multijob(parser, xml_parent, data):
       :Project: * **name** (`str`) -- Project name
                 * **current-parameters** (`bool`) -- Pass current build
                   parameters to the other job (default false)
+                * **node-label-name** (`str`) -- Define a list of nodes
+                  on which the job should be allowed to be executed on.
+                  Requires NodeLabel Parameter Plugin (optional)
+                * **node-label** (`str`) -- Define a label
+                  of 'Restrict where this project can be run' on the fly.
+                  Requires NodeLabel Parameter Plugin (optional)
                 * **git-revision** (`bool`) -- Pass current git-revision
                   to the other job (default false)
                 * **property-file** (`str`) -- Pass properties from file
@@ -778,6 +793,8 @@ def multijob(parser, xml_parent, data):
             projects:
               - name: PhaseOneJobA
                 current-parameters: true
+                node-label-name: "vm_name"
+                node-label: "agent-${BUILD_NUMBER}"
                 git-revision: true
               - name: PhaseOneJobB
                 current-parameters: true
@@ -815,6 +832,15 @@ def multijob(parser, xml_parent, data):
 
         # Pass through other params
         configs = XML.SubElement(phaseJob, 'configs')
+
+        nodeLabelName = project.get('node-label-name')
+        nodeLabel = project.get('node-label')
+        if (nodeLabelName and nodeLabel):
+            node = XML.SubElement(
+                configs, 'org.jvnet.jenkins.plugins.nodelabelparameter.'
+                         'parameterizedtrigger.NodeLabelBuildParameter')
+            XML.SubElement(node, 'name').text = nodeLabelName
+            XML.SubElement(node, 'nodeLabel').text = nodeLabel
 
         # Git Revision
         if project.get('git-revision', False):
@@ -914,19 +940,56 @@ def grails(parser, xml_parent, data):
     XML.SubElement(grails, 'properties').text = data.get(
         'properties', '')
     XML.SubElement(grails, 'forceUpgrade').text = str(
-        data.get('force-upgrade', 'false')).lower()
+        data.get('force-upgrade', False)).lower()
     XML.SubElement(grails, 'nonInteractive').text = str(
-        data.get('non-interactive', 'false')).lower()
+        data.get('non-interactive', False)).lower()
     XML.SubElement(grails, 'useWrapper').text = str(
-        data.get('use-wrapper', 'false')).lower()
+        data.get('use-wrapper', False)).lower()
     XML.SubElement(grails, 'plainOutput').text = str(
-        data.get('plain-output', 'false')).lower()
+        data.get('plain-output', False)).lower()
     XML.SubElement(grails, 'stackTrace').text = str(
-        data.get('stack-trace', 'false')).lower()
+        data.get('stack-trace', False)).lower()
     XML.SubElement(grails, 'verbose').text = str(
-        data.get('verbose', 'false')).lower()
+        data.get('verbose', False)).lower()
     XML.SubElement(grails, 'refreshDependencies').text = str(
-        data.get('refresh-dependencies', 'false')).lower()
+        data.get('refresh-dependencies', False)).lower()
+
+
+def sbt(parser, xml_parent, data):
+    """yaml: sbt
+    Execute a sbt build step. Requires the Jenkins `Sbt Plugin.
+    <https://wiki.jenkins-ci.org/display/JENKINS/sbt+plugin>`_
+
+    :arg str name: Select a sbt installation to use. If no name is
+                   provided, the first in the list of defined SBT
+                   builders will be used. (default to first in list)
+    :arg str jvm-flags: Parameters to pass to the JVM (default '')
+    :arg str actions: Select the sbt tasks to execute (default '')
+    :arg str sbt-flags: Add flags to SBT launcher
+                        (default '-Dsbt.log.noformat=true')
+    :arg str subdir-path: Path relative to workspace to run sbt in (default '')
+
+    Example::
+
+      builders:
+        - sbt:
+            name: "default"
+            actions: "clean package"
+            jvm-flags: "-Xmx8G"
+
+    """
+    sbt = XML.SubElement(xml_parent, 'org.jvnet.hudson.plugins.'
+                                     'SbtPluginBuilder')
+    XML.SubElement(sbt, 'name').text = data.get(
+        'name', '')
+    XML.SubElement(sbt, 'jvmFlags').text = data.get(
+        'jvm-flags', '')
+    XML.SubElement(sbt, 'sbtFlags').text = data.get(
+        'sbt-flags', '-Dsbt.log.noformat=true')
+    XML.SubElement(sbt, 'actions').text = data.get(
+        'actions', '')
+    XML.SubElement(sbt, 'subdirPath').text = data.get(
+        'subdir-path', '')
 
 
 class Builders(jenkins_jobs.modules.base.Base):

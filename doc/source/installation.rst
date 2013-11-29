@@ -11,6 +11,25 @@ systems, including Jenkins.  If you use Puppet, you can use the
 
 __ https://github.com/openstack-infra/config/tree/master/modules/jenkins
 
+Documentation
+-------------
+
+Documentation have been included and are in the 'doc' folder. To generate docs
+locally execute the command::
+
+    tox -e venv -- python setup.py build_sphinx
+
+Unit Tests
+----------
+
+Unit tests have been included and are in the 'tests' folder.  We recently
+started including unit tests as examples in our documentation so to keep the
+examples up to date it is very important that we include a unit tests for
+every module.  You can run the unit tests by execute the command::
+
+    tox -epy27
+
+*Note - view tox.ini to run test on other versions of python
 
 Configuration File
 ------------------
@@ -48,26 +67,29 @@ Running
 After it's installed and configured, you can invoke Jenkins Job
 Builder by running ``jenkins-jobs``.  You won't be able to do anything
 useful just yet without a configuration which is discussed in the next
-section).  But you should be able to get help on the various commands
-by running::
+section.
 
-  jenkins-jobs --help
-  jenkins-jobs update --help
-  jenkins-jobs test --help
-  (etc.)
+Usage
+^^^^^
+.. program-output:: jenkins-jobs --help
 
-Once you have a configuration defined, you can test it with::
+Testing JJB
+^^^^^^^^^^^
+Once you have a configuration defined, you can test the job builder by running::
 
   jenkins-jobs test /path/to/config -o /path/to/output
 
 That will write XML files to the output directory for all of the jobs
-defined in the configuration directory.  When you're satisfied, you
-can run::
+defined in the configuration directory.  
+
+Updating Jenkins
+^^^^^^^^^^^^^^^^
+When you're satisfied with the generated xml from the test, you can run::
 
   jenkins-jobs update /path/to/config
 
 Which will upload the configurations to Jenkins if needed.  Jenkins Job
-Builder maintains, for each host, a cache of previously configured jobs,
+Builder maintains, for each host, a cache [#f1]_ of previously configured jobs,
 so that you can run that command as often as you like, and it will only
 update the configuration in Jenkins if the defined configuration has
 changed since the last time it was run.  Note: if you modify a job
@@ -78,3 +100,8 @@ To update a specific list of jobs, simply pass them as additional
 arguments after the configuration path. To update Foo1 and Foo2 run::
 
   jenkins-jobs update /path/to/config Foo1 Foo2
+
+
+.. rubric:: Footnotes
+.. [#f1] The cache default location is at ``~/.cache/jenkins_jobs``, which
+         can be overridden by setting the ``XDG_CACHE_HOME`` environment variable.
